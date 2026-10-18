@@ -68,6 +68,12 @@ export async function reviseSubscription(subscriptionId: string, planId: string,
   });
 }
 
+export async function cancelSubscription(subscriptionId: string) {
+  return paypalRequest(`/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, "POST", {
+    reason: "The family owner cancelled the CareCircle subscription.",
+  });
+}
+
 export async function showSubscription(subscriptionId: string) {
   return paypalRequest(`/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
 }
@@ -83,3 +89,4 @@ export async function verifyWebhook(event: PayPalObject, request: Request) {
   });
   return result.verification_status === "SUCCESS";
 }
+

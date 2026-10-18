@@ -155,7 +155,7 @@ export default function Home() {
       <div><div className="eyebrow">STRAIGHTFORWARD MEMBERSHIP</div><h2>One family plan.<br />Room to grow.</h2><p>Your first month is free to get everyone settled in. The coordinator manages the subscription; invited members never need to purchase access.</p></div>
       <div className="plan-card"><div className="plan-top"><span>THE FAMILY PLAN</span><b>30 DAYS FREE</b></div><div className="price"><strong>$10</strong><span>/ month after free month</span></div><hr /><ul><li><b>✓</b> Up to 5 people in your family space</li><li><b>✓</b> Invite family members at no charge</li><li><b>✓</b> Add a person for $2/month each after 5</li><li><b>✓</b> One shared space for care coordination</li></ul><button className="button primary submit" onClick={() => document.getElementById("join")?.scrollIntoView({ behavior: "smooth" })}>Start your free month <b>→</b></button></div>
     </section>
-    <footer className="footer"><a className="brand" href="#"><span className="brand-mark">✳</span><span><b>carecircle</b><small>FAMILY CARE, TOGETHER</small></span></a><span>Small steps, shared with love.</span><span>© 2026 CareCircle</span></footer>
+    <footer className="footer"><a className="brand" href="#"><span className="brand-mark">✳</span><span><b>carecircle</b><small>FAMILY CARE, TOGETHER</small></span></a><span>Small steps, shared with love.</span><nav className="footer-links" aria-label="Policies and support"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/refunds">Billing & refunds</a><a href="/support">Support</a></nav><span>© 2026 CareCircle</span></footer>
   </main>;
 }
 
@@ -226,3 +226,4 @@ function Activity({ name, sub, time, initials, tone }: { name: string; sub: stri
 function Modal({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
   return <div className="backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close" onClick={close} aria-label="Close dialog">×</button><div className="eyebrow">YOUR FAMILY SPACE</div><h2 id="modal-title">{title}</h2>{children}</section></div>;
 }
+

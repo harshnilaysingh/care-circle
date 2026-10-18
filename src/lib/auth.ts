@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 function createAuth() {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret) throw new Error("AUTH_NOT_CONFIGURED");
+  if (Buffer.byteLength(secret, "utf8") < 32) throw new Error("INVALID_AUTH_SECRET");
   return betterAuth({
     database: db(),
     secret,
@@ -51,3 +52,4 @@ export function auth(): AuthInstance {
   if (!instance) instance = createAuth();
   return instance;
 }
+

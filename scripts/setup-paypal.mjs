@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { PAYPAL_SUBSCRIPTION_WEBHOOK_EVENTS } from "../src/lib/paypal-webhook-policy.mjs";
 
 const mode = process.env.PAYPAL_MODE || "sandbox";
 if (!new Set(["sandbox", "live"]).has(mode)) throw new Error("PAYPAL_MODE must be sandbox or live");
@@ -38,13 +39,21 @@ const standardPlan = await makePlan(false);
 const webhookUrl = `${appUrl.replace(/\/$/, "")}/api/billing/webhook`;
 const existingWebhooks = await request("/v1/notifications/webhooks?page_size=100", "GET", {});
 const existing = existingWebhooks.webhooks?.find((webhook) => webhook.url === webhookUrl);
-const webhook = existing || await request("/v1/notifications/webhooks", "POST", {
-  url: webhookUrl,
-  event_types: [
-    "BILLING.SUBSCRIPTION.ACTIVATED", "BILLING.SUBSCRIPTION.UPDATED", "BILLING.SUBSCRIPTION.CANCELLED",
-    "BILLING.SUBSCRIPTION.SUSPENDED", "BILLING.SUBSCRIPTION.EXPIRED", "BILLING.SUBSCRIPTION.PAYMENT.FAILED",
-    "BILLING.SUBSCRIPTION.PAYMENT.COMPLETED", "PAYMENT.SALE.COMPLETED", "PAYMENT.SALE.REFUNDED",
-    "PAYMENT.CAPTURE.COMPLETED", "PAYMENT.CAPTURE.REFUNDED",
-  ].map((name) => ({ name })),
-});
+let webhook = existing;
+if (existing) {
+  const currentEvents = Array.isArray(existing.event_types) ? existing.event_types : [];
+  const known = new Set(currentEvents.map((event) => event.name));
+  const missingEvents = PAYPAL_SUBSCRIPTION_WEBHOOK_EVENTS.filter((name) => !known.has(name));
+  if (missingEvents.length) {
+    webhook = await request(`/v1/notifications/webhooks/${encodeURIComponent(existing.id)}`, "PATCH", [
+      { op: "replace", path: "/event_types", value: [...currentEvents, ...missingEvents.map((name) => ({ name }))] },
+    ]);
+  }
+} else {
+  webhook = await request("/v1/notifications/webhooks", "POST", {
+    url: webhookUrl,
+    event_types: PAYPAL_SUBSCRIPTION_WEBHOOK_EVENTS.map((name) => ({ name })),
+  });
+}
 console.log(JSON.stringify({ productId: product.id, trialPlanId: trialPlan.id, standardPlanId: standardPlan.id, webhookId: webhook.id, webhookUrl, mode }, null, 2));
+

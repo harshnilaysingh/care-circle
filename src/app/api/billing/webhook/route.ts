@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { randomUUID } from "node:crypto";
 import { activateSubscription } from "@/lib/billing";
 import { apiFailure } from "@/lib/errors";
 import { db, inTransaction } from "@/lib/db";
 import { verifyWebhook } from "@/lib/paypal";
 import { jsonError, writeAudit } from "@/lib/security";
+import { classifyPayPalEvent, getPayPalEventIds } from "@/lib/paypal-webhook-policy.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,10 +26,9 @@ export async function POST(request: Request) {
         [event.id, event.event_type, typeof event.resource.id === "string" ? event.resource.id : null, await digest(raw)]);
       if (!inserted.rowCount) return;
       const resource = event.resource;
-      const subscriptionId = stringValue(resource.id) && event.event_type.startsWith("BILLING.SUBSCRIPTION.")
-        ? stringValue(resource.id)
-        : stringValue(resource.billing_agreement_id) ?? stringValue(resource.subscription_id);
-      if (["BILLING.SUBSCRIPTION.ACTIVATED", "BILLING.SUBSCRIPTION.UPDATED"].includes(event.event_type) && subscriptionId) {
+      const impact = classifyPayPalEvent(event.event_type);
+      const { subscriptionId, paymentId } = getPayPalEventIds(event.event_type, resource);
+      if (impact === "subscription-active" && subscriptionId) {
         const familyId = await activateSubscription(client, subscriptionId, stringValue(resource.custom_id), resource);
         if (familyId) {
           const qty = Number(resource.quantity);
@@ -42,24 +41,24 @@ export async function POST(request: Request) {
             }
           }
         }
-      } else if (["BILLING.SUBSCRIPTION.CANCELLED", "BILLING.SUBSCRIPTION.SUSPENDED", "BILLING.SUBSCRIPTION.EXPIRED", "BILLING.SUBSCRIPTION.PAYMENT.FAILED"].includes(event.event_type) && subscriptionId) {
+      } else if (impact === "subscription-inactive" && subscriptionId) {
         const family = (await client.query("UPDATE families SET status='inactive',subscription_status=$2,updated_at=now() WHERE paypal_subscription_id=$1 RETURNING id,owner_id", [subscriptionId, event.event_type.split(".").at(-1)])).rows[0];
         if (family) await writeAudit(client, family.id, family.owner_id, "subscription.inactive", "family", family.id);
-      } else if (["BILLING.SUBSCRIPTION.PAYMENT.COMPLETED", "PAYMENT.SALE.COMPLETED", "PAYMENT.CAPTURE.COMPLETED"].includes(event.event_type) && subscriptionId) {
+      } else if (impact === "payment" && subscriptionId) {
         const family = (await client.query("SELECT id FROM families WHERE paypal_subscription_id=$1 FOR UPDATE", [subscriptionId])).rows[0];
         if (family && typeof resource.id === "string") await client.query(`INSERT INTO billing_transactions(provider_resource_id,family_id,subscription_id,kind,status)
           VALUES($1,$2,$3,'payment',$4) ON CONFLICT(provider_resource_id) DO NOTHING`, [resource.id, family.id, subscriptionId, String(resource.status ?? "COMPLETED")]);
-      } else if (["PAYMENT.CAPTURE.REFUNDED", "PAYMENT.SALE.REFUNDED"].includes(event.event_type)) {
-        const related = resource.supplementary_data && typeof resource.supplementary_data === "object" ? (resource.supplementary_data as Record<string, unknown>).related_ids : undefined;
-        const relatedIds = related && typeof related === "object" ? related as Record<string, unknown> : {};
-        const captureId = stringValue(relatedIds.capture_id) ?? stringValue(resource.capture_id) ?? stringValue(resource.id);
-        const subId = stringValue(resource.billing_agreement_id) ?? stringValue(resource.subscription_id);
-        const family = (await client.query(`SELECT id,owner_id,paypal_subscription_id FROM families WHERE paypal_subscription_id=$1 OR id=(SELECT family_id FROM billing_transactions WHERE provider_resource_id=$2 LIMIT 1) FOR UPDATE`, [subId ?? "", captureId ?? ""])).rows[0];
+      } else if (impact === "refund" || impact === "reversal") {
+        const transactionId = paymentId ?? stringValue(resource.capture_id) ?? event.id;
+        const family = (await client.query(`SELECT id,owner_id,paypal_subscription_id FROM families WHERE paypal_subscription_id=$1 OR id=(SELECT family_id FROM billing_transactions WHERE provider_resource_id=$2 LIMIT 1) FOR UPDATE`, [subscriptionId ?? "", transactionId])).rows[0];
         if (family) {
-          if (captureId) await client.query(`INSERT INTO billing_transactions(provider_resource_id,family_id,subscription_id,kind,status)
-            VALUES($1,$2,$3,'refund','REFUNDED') ON CONFLICT(provider_resource_id) DO NOTHING`, [String(resource.id ?? randomUUID()), family.id, family.paypal_subscription_id]);
-          await client.query("UPDATE families SET status='inactive',subscription_status='REFUNDED',updated_at=now() WHERE id=$1", [family.id]);
-          await writeAudit(client, family.id, family.owner_id, "subscription.refunded", "family", family.id);
+          const kind = impact === "reversal" ? "reversal" : "refund";
+          const status = impact === "reversal" ? "REVERSED" : "REFUNDED";
+          await client.query(`INSERT INTO billing_transactions(provider_resource_id,family_id,subscription_id,kind,status)
+            VALUES($1,$2,$3,$4,$5) ON CONFLICT(provider_resource_id) DO UPDATE SET kind=EXCLUDED.kind,status=EXCLUDED.status`,
+            [transactionId, family.id, family.paypal_subscription_id, kind, status]);
+          await client.query("UPDATE families SET status='inactive',subscription_status=$2,updated_at=now() WHERE id=$1", [family.id, status]);
+          await writeAudit(client, family.id, family.owner_id, impact === "reversal" ? "subscription.reversed" : "subscription.refunded", "family", family.id);
         }
       }
       await client.query("UPDATE webhook_events SET processed_at=now() WHERE event_id=$1", [event.id]);
@@ -73,3 +72,4 @@ async function digest(value: string) {
   const { createHash } = await import("node:crypto");
   return createHash("sha256").update(value).digest("hex");
 }
+
