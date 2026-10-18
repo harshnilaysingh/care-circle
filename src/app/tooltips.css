@@ -1,0 +1,40 @@
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 1000;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: min(280px, calc(100vw - 28px));
+  overflow: hidden;
+  padding: 7px 10px;
+  border: 1px solid #ffffff22;
+  border-radius: 8px;
+  background: #263a31;
+  color: #fff;
+  box-shadow: 0 6px 18px #1f352c33;
+  font: 500 11px/1.35 var(--sans, system-ui, sans-serif);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 4px);
+  transition: opacity .16s ease, transform .16s ease, visibility .16s;
+}
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after,
+[data-tip]:focus-within::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+@media (hover: none) {
+  [data-tip]:active::after,
+  [data-tip]:focus-within::after { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-tip]::after { transition: none; }
+}

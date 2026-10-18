@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { authClient } from "@/lib/auth-client";
 
 type Tab = "create" | "invite";
 
@@ -11,13 +12,59 @@ export default function Home() {
   const [section, setSection] = useState("Today");
   const [done, setDone] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [loginMode, setLoginMode] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("invite");
+    if (code) { setInviteCode(code); setTab("invite"); }
+    if (params.get("signin") === "1") setLoginMode(true);
+    if (params.get("access") === "required") setNotice("An active family subscription is required to open the member workspace.");
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!event.currentTarget.reportValidity()) return;
-    setNotice(tab === "create"
-      ? "The secure account and PayPal checkout flow will be connected in the backend phase."
-      : "The secure invite check and account flow will be connected in the backend phase.");
+    const form = event.currentTarget;
+    const fields = new FormData(form);
+    const name = String(fields.get("name") ?? "").trim();
+    const email = String(fields.get("email") ?? "").trim().toLowerCase();
+    const password = String(fields.get("password") ?? "");
+    const code = String(fields.get("inviteCode") ?? inviteCode).trim();
+    const profile = { age: Number(fields.get("age")), relation: String(fields.get("relation") ?? ""), careFocus: ["aging-parent"] as string[] };
+    setBusy(true); setNotice("");
+    try {
+      if (!loginMode) {
+        const result = await authClient.signUp.email({ name, email, password });
+        if (result.error) throw new Error(result.error.message || "We couldn't create your account.");
+        setNotice("Account created. Check your email to verify it, then sign in here to finish setup.");
+        setLoginMode(true);
+        setBusy(false);
+        return;
+      }
+      const signedIn = await authClient.signIn.email({ email, password });
+      if (signedIn.error) throw new Error(signedIn.error.message || "We couldn't sign you in.");
+      const activeMembership = await fetch("/api/family", { cache: "no-store" });
+      if (activeMembership.ok) { window.location.assign("/workspace"); return; }
+      if (tab === "invite") {
+        const joined = await fetch("/api/family/join", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+        const joinedBody = await joined.json().catch(() => ({}));
+        if (!joined.ok) throw new Error(joinedBody.error || "We couldn't apply that invitation.");
+        window.location.assign("/workspace");
+        return;
+      }
+      const profileResponse = await fetch("/api/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) });
+      if (!profileResponse.ok) { const body = await profileResponse.json().catch(() => ({})); throw new Error(body.error || "We couldn't save your profile."); }
+      const checkout = await fetch("/api/billing/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ familyName: String(fields.get("familyName") ?? "").trim(), profile }) });
+      const checkoutBody = await checkout.json().catch(() => ({}));
+      if (!checkout.ok) throw new Error(checkoutBody.error || "PayPal checkout could not start.");
+      window.location.assign(checkoutBody.approvalUrl);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Something went wrong. Please try again.");
+      setBusy(false);
+    }
   }
 
   function toast(message: string) {
@@ -35,7 +82,7 @@ export default function Home() {
     <header className="header">
       <a className="brand" href="#"><span className="brand-mark">✳</span><span><b>carecircle</b><small>FAMILY CARE, TOGETHER</small></span></a>
       <nav><a href="#how">How it works</a><a href="#plan">Membership</a><button onClick={() => { setTab("invite"); document.getElementById("join")?.scrollIntoView({ behavior: "smooth" }); }}>Join a family</button></nav>
-      <button className="button outline" onClick={() => document.getElementById("join")?.scrollIntoView({ behavior: "smooth" })}>Log in <span>↗</span></button>
+      <button className="button outline" onClick={() => { setLoginMode(true); setTab("create"); document.getElementById("join")?.scrollIntoView({ behavior: "smooth" }); }} data-tip="Sign in to your family account.">Log in <span>↗</span></button>
     </header>
 
     <section className="hero">
@@ -81,21 +128,24 @@ export default function Home() {
           <button role="tab" aria-selected={tab === "invite"} className={tab === "invite" ? "selected" : ""} onClick={() => { setTab("invite"); setNotice(""); }}>I have an invite</button>
         </div>
         {tab === "create" ? <form onSubmit={submit}>
-          <h3>Create your account</h3><p className="form-intro">You’ll be the coordinator for your family space.</p>
-          <div className="fields"><Field label="Your name" placeholder="e.g. Sarah Morgan" auto="name" /><Field label="Email address" placeholder="you@example.com" type="email" auto="email" /></div>
-          <div className="fields"><Field label="Age" placeholder="Your age" type="number" min="13" max="120" /><Relation label="Relationship to care recipient" /></div>
-          <Field label="Password" placeholder="At least 10 characters" type="password" minLength="10" auto="new-password" />
+          <h3>{loginMode ? "Sign in to your account" : "Create your account"}</h3><p className="form-intro">{loginMode ? "Sign in to manage your family or finish checkout." : "You’ll be the coordinator for your family space."}</p>
+          {!loginMode && <Field name="name" label="Your name" placeholder="e.g. Sarah Morgan" auto="name" />}
+          <Field name="email" label="Email address" placeholder="you@example.com" type="email" auto="email" />
+          <Field name="password" label="Password" placeholder={loginMode ? "Your password" : "At least 10 characters"} type="password" minLength={loginMode ? undefined : "10"} auto={loginMode ? "current-password" : "new-password"} />
+          <Field name="familyName" label="Family space name" placeholder="e.g. The Morgan family" />
+          <div className="fields"><Field name="age" label="Age" placeholder="Your age" type="number" min="13" max="120" /><Relation name="relation" label="Relationship to care recipient" /></div>
           <div className="price-note"><span>✦</span><div><b>First month on us</b><small>Then $10/month for 5 family members. $2/month for each additional member.</small></div></div>
-          <button className="button primary submit" type="submit">Create account &amp; start free month <b>→</b></button>
-          <p className="fine">No charge today. PayPal checkout and account creation will connect in the backend phase.</p>
+          <button className="button primary submit" disabled={busy} type="submit" data-tip={loginMode ? "Sign in, then continue to the family setup or workspace." : "Create your account and verify your email to start setup."}>{busy ? "Please wait…" : loginMode ? "Sign in & continue" : "Create account & start free month"} <b>→</b></button>
+          <button className="form-toggle" type="button" onClick={() => { setLoginMode(!loginMode); setNotice(""); }}>{loginMode ? "New to CareCircle? Create an account" : "Already have an account? Sign in"}</button>
+          <p className="fine">Your first month is free. After that it is $10/month for 5 people, then $2/month for each added seat.</p>
         </form> : <form onSubmit={submit}>
-          <h3>Join your family</h3><p className="form-intro">Have a code from your family coordinator? Join without a purchase.</p>
-          <Field label="Family invite code" placeholder="PASTE YOUR INVITE CODE" minLength="8" />
-          <div className="fields"><Field label="Your name" placeholder="e.g. Emily Morgan" auto="name" /><Field label="Email address" placeholder="you@example.com" type="email" auto="email" /></div>
-          <div className="fields"><Field label="Age" placeholder="Your age" type="number" min="13" max="120" /><Relation label="Relationship to family" /></div>
-          <Field label="Create a password" placeholder="At least 10 characters" type="password" minLength="10" auto="new-password" />
-          <button className="button primary submit" type="submit">Join my family <b>→</b></button>
-          <p className="fine">Codes are single-use and expire after 7 days. We’ll check your code before adding you.</p>
+          <h3>{loginMode ? "Sign in to join your family" : "Join your family"}</h3><p className="form-intro">Have a code from your family coordinator? Join without a purchase.</p>
+          <Field name="inviteCode" value={inviteCode} onChange={setInviteCode} label="Family invite code" placeholder="PASTE YOUR INVITE CODE" minLength="20" />
+          {!loginMode && <><div className="fields"><Field name="name" label="Your name" placeholder="e.g. Emily Morgan" auto="name" /><Field name="email" label="Email address" placeholder="you@example.com" type="email" auto="email" /></div><div className="fields"><Field name="age" label="Age" placeholder="Your age" type="number" min="13" max="120" /><Relation name="relation" label="Relationship to family" /></div><Field name="password" label="Create a password" placeholder="At least 10 characters" type="password" minLength="10" auto="new-password" />
+          <button className="form-toggle" type="button" onClick={() => { setLoginMode(true); setNotice(""); }}>Already have an account? Sign in</button></>}
+          {loginMode && <><Field name="email" label="Email address" placeholder="you@example.com" type="email" auto="email" /><Field name="password" label="Password" placeholder="Your password" type="password" auto="current-password" /><button className="form-toggle" type="button" onClick={() => { setLoginMode(false); setNotice(""); }}>Need an account? Create one</button></>}
+          <button className="button primary submit" disabled={busy} type="submit" data-tip={loginMode ? "Sign in and redeem this single-use family invitation." : "Create your account, verify your email, then sign in to join."}>{busy ? "Please wait…" : loginMode ? "Sign in & join family" : "Create account & join family"} <b>→</b></button>
+          <p className="fine">Codes are single-use, expire after 7 days, and only work with the invited email address.</p>
         </form>}
         {notice && <div className="notice" role="status">{notice}</div>}
       </div>
@@ -109,12 +159,12 @@ export default function Home() {
   </main>;
 }
 
-function Field({ label, placeholder, type = "text", auto, min, max, minLength }: { label: string; placeholder: string; type?: string; auto?: string; min?: string; max?: string; minLength?: string }) {
-  return <label className="field"><span>{label}</span><input required className="input" placeholder={placeholder} type={type} autoComplete={auto} min={min} max={max} minLength={minLength ? Number(minLength) : undefined} /></label>;
+function Field({ name, label, placeholder, type = "text", auto, min, max, minLength, value, onChange }: { name: string; label: string; placeholder: string; type?: string; auto?: string; min?: string; max?: string; minLength?: string; value?: string; onChange?: (value: string) => void }) {
+  return <label className="field" data-tip={`Enter ${label.toLowerCase()} for your family account.`}><span>{label}</span><input name={name} value={value} onChange={(event) => onChange?.(event.target.value)} required className="input" placeholder={placeholder} type={type} autoComplete={auto} min={min} max={max} minLength={minLength ? Number(minLength) : undefined} /></label>;
 }
 
-function Relation({ label }: { label: string }) {
-  return <label className="field"><span>{label}</span><select className="input" required defaultValue=""><option value="" disabled>Select a relationship</option><option>Parent</option><option>Child</option><option>Partner</option><option>Sibling</option><option>Grandparent</option><option>Other family member</option><option>Caregiver</option></select></label>;
+function Relation({ name, label }: { name: string; label: string }) {
+  return <label className="field" data-tip="Choose how you are connected to the person receiving care."><span>{label}</span><select name={name} className="input" required defaultValue=""><option value="" disabled>Select a relationship</option><option>Parent</option><option>Child</option><option>Partner</option><option>Sibling</option><option>Grandparent</option><option>Other family member</option><option>Caregiver</option></select></label>;
 }
 
 const sections = ["Today", "Daily updates", "Tasks & handoffs", "Care calendar", "Care notes", "Family chat", "Household funds", "People & roles", "AI guidance"];
@@ -150,9 +200,9 @@ function Workspace({ section, setSection, done, setDone, onBack, onToast, onAI, 
         <div className="seats-card"><div><b>Family seats <small>One owner, one shared space</small></b><strong>4 / 5</strong></div><div className="meter"><i /></div><small>1 seat available on this plan</small><button onClick={() => setInviteOpen(true)}>Invite someone →</button></div>
       </div></div>
     </main>
-    {inviteOpen && <Modal title="Invite your family" close={() => setInviteOpen(false)}><p>Invite members into this shared space. Invite codes are single-use and expire after 7 days.</p><Field label="Email address" placeholder="family@example.com" type="email" /><div className="price-note"><span>♧</span><div><b>4 of 5 seats used</b><small>Members after the first five add $2/month each.</small></div></div><button className="button primary submit" onClick={() => { setInviteOpen(false); onToast("Invite links and the native share sheet will connect in the backend phase."); }}>Create invite link <b>→</b></button></Modal>}
-    {updateOpen && <Modal title="Share an update" close={() => setUpdateOpen(false)}><p>Let your family know how the day is going.</p><label className="field"><span>Your update</span><textarea className="input" rows={4} placeholder="Share what your family should know…" /></label><button className="button primary submit" onClick={() => { setUpdateOpen(false); onToast("Updates will save to your private family workspace."); }}>Share with family <b>→</b></button></Modal>}
-    {aiOpen && <Modal title="Personalized family guidance" close={() => setAiOpen(false)}><p>Choose the kind of support you need and share what would help today.</p><div className="focus">{["Parenting children", "Aging parent"].map((value) => <button className={focus === value ? "chosen" : ""} onClick={() => setFocus(value)} key={value}>{value}</button>)}</div><label className="field"><span>Your question</span><textarea className="input" rows={4} placeholder={focus === "Aging parent" ? "Share a care challenge or family question…" : "Share a parenting question or a moment you want help with…"} /></label><button className="button primary submit" onClick={() => { setAiOpen(false); onToast("Personalized guidance will be generated after the AI service is connected."); }}>Get thoughtful ideas <b>→</b></button><p className="fine">Everyday support only; this is not medical advice.</p></Modal>}
+    {inviteOpen && <Modal title="Invite your family" close={() => setInviteOpen(false)}><p>Invite members into this shared space. Invite codes are single-use and expire after 7 days.</p><Field label="Email address" placeholder="family@example.com" type="email" /><div className="price-note"><span>♧</span><div><b>4 of 5 seats used</b><small>Members after the first five add $2/month each.</small></div></div><button className="button primary submit" onClick={() => { setInviteOpen(false); onToast("This sample preview doesn't create invites. Sign in to share a real family invite."); }}>Create invite link <b>→</b></button></Modal>}
+    {updateOpen && <Modal title="Share an update" close={() => setUpdateOpen(false)}><p>Let your family know how the day is going.</p><label className="field"><span>Your update</span><textarea className="input" rows={4} placeholder="Share what your family should know…" /></label><button className="button primary submit" onClick={() => { setUpdateOpen(false); onToast("This sample preview doesn't save updates. Sign in to share one with your family."); }}>Share with family <b>→</b></button></Modal>}
+    {aiOpen && <Modal title="Personalized family guidance" close={() => setAiOpen(false)}><p>Choose the kind of support you need and share what would help today.</p><div className="focus">{["Parenting children", "Aging parent"].map((value) => <button className={focus === value ? "chosen" : ""} onClick={() => setFocus(value)} key={value}>{value}</button>)}</div><label className="field"><span>Your question</span><textarea className="input" rows={4} placeholder={focus === "Aging parent" ? "Share a care challenge or family question…" : "Share a parenting question or a moment you want help with…"} /></label><button className="button primary submit" onClick={() => { setAiOpen(false); onToast("This sample preview doesn't send AI requests. Sign in to request private guidance."); }}>Get thoughtful ideas <b>→</b></button><p className="fine">Everyday support only; this is not medical advice.</p></Modal>}
     {notice && <div className="toast" role="status">{notice}</div>}
   </div>;
 }
@@ -176,4 +226,3 @@ function Activity({ name, sub, time, initials, tone }: { name: string; sub: stri
 function Modal({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
   return <div className="backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close" onClick={close} aria-label="Close dialog">×</button><div className="eyebrow">YOUR FAMILY SPACE</div><h2 id="modal-title">{title}</h2>{children}</section></div>;
 }
-
