@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test",
     "db:migrate": "node scripts/migrate.mjs",
     "paypal:setup": "node scripts/setup-paypal.mjs"
   },
