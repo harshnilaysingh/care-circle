@@ -10,7 +10,6 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [section, setSection] = useState("Today");
   const [done, setDone] = useState(false);
-  const [focus, setFocus] = useState("Aging parent");
   const [aiOpen, setAiOpen] = useState(false);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -126,6 +125,7 @@ function Workspace({ section, setSection, done, setDone, onBack, onToast, onAI, 
   onBack: () => void; onToast: (message: string) => void; onAI: () => void; aiOpen: boolean;
   setAiOpen: (value: boolean) => void; notice: string;
 }) {
+  const [focus, setFocus] = useState("Aging parent");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   return <div className="workspace">
