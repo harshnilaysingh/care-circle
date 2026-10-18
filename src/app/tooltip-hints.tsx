@@ -125,7 +125,19 @@ export default function TooltipHints() {
       root.querySelectorAll<HTMLElement>(HINT_TARGETS).forEach(applyTo);
     };
 
+    const placeHint = (event: Event) => {
+      if (!(event.target instanceof Element)) return;
+      const element = event.target.closest<HTMLElement>("[data-tip]");
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      element.dataset.tipPlacement = rect.top < 48 ? "bottom" : "top";
+      const center = rect.left + rect.width / 2;
+      element.dataset.tipAlign = center < 160 ? "start" : center > window.innerWidth - 160 ? "end" : "center";
+    };
+
     scan(document);
+    document.addEventListener("pointerover", placeHint, true);
+    document.addEventListener("focusin", placeHint, true);
     const observer = new MutationObserver((changes) => {
       for (const change of changes) {
         change.addedNodes.forEach((node) => {
@@ -134,7 +146,11 @@ export default function TooltipHints() {
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("pointerover", placeHint, true);
+      document.removeEventListener("focusin", placeHint, true);
+    };
   }, []);
 
   return null;

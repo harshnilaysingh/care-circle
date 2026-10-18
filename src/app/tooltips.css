@@ -1,4 +1,4 @@
-[data-tip] { position: relative; }
+[data-tip] { position: relative; --tip-x: -50%; --tip-y: 4px; }
 [data-tip]::after {
   content: attr(data-tip);
   position: absolute;
@@ -20,20 +20,23 @@
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transform: translate(-50%, 4px);
+  transform: translate(var(--tip-x), var(--tip-y));
   transition: opacity .16s ease, transform .16s ease, visibility .16s;
 }
+[data-tip-align="start"]::after { left: 0; --tip-x: 0; }
+[data-tip-align="end"]::after { left: auto; right: 0; --tip-x: 0; }
+[data-tip-placement="bottom"]::after { top: calc(100% + 8px); bottom: auto; --tip-y: -4px; }
 [data-tip]:hover::after,
 [data-tip]:focus-visible::after,
 [data-tip]:focus-within::after {
   opacity: 1;
   visibility: visible;
-  transform: translate(-50%, 0);
+  --tip-y: 0;
 }
 .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 @media (hover: none) {
   [data-tip]:active::after,
-  [data-tip]:focus-within::after { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+  [data-tip]:focus-within::after { opacity: 1; visibility: visible; --tip-y: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   [data-tip]::after { transition: none; }
