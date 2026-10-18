@@ -43,8 +43,9 @@ export default function Home() {
     try {
       if (!loginMode) {
         const response = await fetch("/api/auth/sign-up/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password, age }) });
-        const result = await response.json().catch(() => ({})) as { message?: string; error?: { message?: string } };
-        if (!response.ok) throw new Error(result.message || result.error?.message || "We couldn't create your account.");
+        const result = await response.json().catch(() => ({})) as { message?: string; error?: string | { message?: string } };
+        const signupError = typeof result.error === "string" ? result.error : result.error?.message;
+        if (!response.ok || result.error) throw new Error(result.message || signupError || "We couldn't create your account.");
         setNotice("Account created. Check your email to verify it, then sign in here to finish setup.");
         setLoginMode(true);
         setBusy(false);

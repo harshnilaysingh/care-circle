@@ -69,6 +69,7 @@ npm run dev
 ## Security and data handling
 
 - Better Auth manages password hashing, opaque HttpOnly sessions, email verification, and logout.
+- New account creation screens age before collecting account details, and Better Auth rejects signup requests that do not pass the server-side 13–120 age check. Age is removed from the auth request before user storage; profile age is stored with the encrypted profile.
 - Family membership, billing status, ownership, and seat checks are enforced server-side. Seat joins lock the family row before counting and inserting.
 - Invitation codes are stored as SHA-256 hashes. Invitee email is stored as a hash; the invite profile, updates, messages, notes, appointments, and financial values are encrypted with AES-256-GCM before database storage.
 - API request limits use a keyed hash of the source address; raw addresses and request bodies are not logged.

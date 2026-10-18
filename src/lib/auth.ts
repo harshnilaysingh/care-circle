@@ -36,6 +36,9 @@ function createAuth() {
         if (!isEligibleAccountAge(ctx.body?.age)) {
           throw new APIError("BAD_REQUEST", { message: "CareCircle accounts are for people age 13 and older." });
         }
+        const body = { ...(ctx.body ?? {}) };
+        delete body.age;
+        return { context: { ...ctx, body } };
       }),
     },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
