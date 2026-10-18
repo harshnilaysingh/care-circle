@@ -33,6 +33,7 @@ Required environment values:
 | `DATABASE_URL` | Neon pooled PostgreSQL connection string with TLS |
 | `DATA_ENCRYPTION_KEY` | Base64-encoded random 32-byte AES-256-GCM key, separate from the auth secret |
 | `RESEND_API_KEY`, `EMAIL_FROM` | Verified-email and password-reset delivery |
+| `SUPPORT_EMAIL` | Public support contact shown on the Support page |
 | `PAYPAL_MODE` | `sandbox` for development, `live` only after sandbox verification |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | PayPal REST API app credentials |
 | `PAYPAL_TRIAL_PLAN_ID`, `PAYPAL_STANDARD_PLAN_ID` | Plan IDs created by the setup script |
@@ -48,14 +49,17 @@ Generate secrets locally with a cryptographic random generator. Do not commit `.
 3. Run `npm install`, then `npm run paypal:setup`. It creates the trial and standard $2-per-seat plans and the PayPal webhook. Add the printed plan and webhook IDs to Vercel.
 4. Set `BETTER_AUTH_SECRET`, `DATA_ENCRYPTION_KEY`, Resend credentials, and optional OpenAI credentials in Vercel.
 5. Run `npm run db:migrate` once against the Neon database. Migrations are intentionally run explicitly rather than during every serverless build.
-6. Redeploy, then test account verification, sandbox checkout, family activation, invitation redemption, concurrent seat joins, cancellation/refund handling, and member access.
+6. Redeploy, then run `npm test`, verify `/api/health`, and complete every applicable scenario in [the pre-launch acceptance checklist](docs/prelaunch-acceptance.md).
 
 The setup script creates PayPal resources each time it is run; it reuses an existing webhook for the same URL. Store the printed IDs securely in Vercel. Use separate sandbox and live PayPal apps, plan IDs, webhook IDs, and credentials.
+
+The PayPal setup script updates an existing webhook to include required events, including refunds and payment reversals. It may create duplicate product/plan resources if run again; preserve the current plan IDs and do not rerun in production without reviewing the PayPal account first.
 
 ## Development
 
 ```sh
 npm install
+npm test
 npm run db:migrate
 npm run dev
 ```
@@ -65,12 +69,20 @@ npm run dev
 ## Security and data handling
 
 - Better Auth manages password hashing, opaque HttpOnly sessions, email verification, and logout.
+- New account creation screens age before collecting account details, and Better Auth rejects signup requests that do not pass the server-side 13–120 age check. Age is removed from the auth request before user storage; profile age is stored with the encrypted profile.
 - Family membership, billing status, ownership, and seat checks are enforced server-side. Seat joins lock the family row before counting and inserting.
 - Invitation codes are stored as SHA-256 hashes. Invitee email is stored as a hash; the invite profile, updates, messages, notes, appointments, and financial values are encrypted with AES-256-GCM before database storage.
 - API request limits use a keyed hash of the source address; raw addresses and request bodies are not logged.
 - AI guidance requires explicit consent, is not persisted, and is presented as everyday support rather than medical advice.
 - Audit records contain action names and entity identifiers, not care text, chat content, invite codes, or financial amounts.
+- Owner-managed subscription cancellation is sent to PayPal and immediately disables family access when accepted. Refund requests are handled through support and PayPal.
+- `/api/health` reports database/migration readiness without exposing service configuration.
+
+## Policies and operations
+
+Public Privacy, Terms, Billing & refunds, and Support pages are available in the app. Set `SUPPORT_EMAIL` before deployment. These documents are product drafts; have qualified counsel review them for the markets where CareCircle will be sold. Account export/deletion still requires an operator workflow. See [operations](docs/operations.md) and [pre-launch acceptance](docs/prelaunch-acceptance.md).
 
 ## Deployment status
 
-The frontend is deployed on Vercel. Backend code is present in this repository, but real sign-in, billing, and family data remain unavailable until the Neon database, PayPal credentials/plans/webhook, email provider, and encryption/auth secrets above are configured. Never advertise the backend as live before those dependencies and the sandbox flow have been checked.
+The frontend is deployed on Vercel. Backend code is present in this repository, but real sign-in, billing, and family data remain unavailable until the Neon database, PayPal credentials/plans/webhook, Resend sender, support contact, and encryption/auth secrets above are configured and verified. Never advertise the backend as live before those dependencies and the sandbox flow have been checked.
+
